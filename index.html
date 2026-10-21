@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-slate-900">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poda Ecorrregímenes - Verificación Fotogramétrica</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- EXIF Reader -->
+    <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        .leaflet-container {
+            background-color: #0f172a !important;
+            font-family: inherit;
+        }
+
+        details summary::-webkit-details-marker { display: none; }
+        
+        .tool-active {
+            border-color: #38bdf8 !important;
+            background-color: rgba(56, 189, 248, 0.2) !important;
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.4);
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col text-slate-100 font-sans antialiased overflow-hidden select-none">
+
+    <!-- BARRA SUPERIOR -->
+    <header class="bg-slate-950 border-b border-slate-800 px-4 py-3 flex items-center justify-between z-20 shrink-0">
+        <div class="flex items-center space-x-3">
+            <img id="headerLogoImg" src="" alt="VAERSA" class="h-8 object-contain bg-white/90 px-2 py-1 rounded">
+            <div>
+                <h1 class="text-sm sm:text-base font-bold text-slate-100 leading-none">Análisis Fotogramétrico de Restos de Poda</h1>
+                <p class="text-[11px] text-emerald-400 font-medium mt-0.5">Ecorrégimen PAC: Cubiertas Inertes y Vegetales (Agricultura de Carbono)</p>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+            <label for="imageLoader" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer transition flex items-center gap-1.5 shadow-sm">
+                <i data-lucide="upload" class="w-4 h-4"></i>
+                <span class="hidden sm:inline">Cargar Fotografía</span>
+            </label>
+            <input type="file" id="imageLoader" accept="image/*" class="hidden">
+
+            <button id="btnExport" class="bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed" disabled>
+                <i data-lucide="download" class="w-4 h-4"></i>
+                <span>Guardar Imagen Procesada</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- PANEL PRINCIPAL -->
+    <div class="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+
+        <!-- ÁREA DE DIBUJO Y CANVAS -->
+        <main class="flex-1 flex flex-col bg-slate-950 relative overflow-hidden">
+
+            <!-- Barra de Herramientas -->
+            <div class="bg-slate-900/90 backdrop-blur border-b border-slate-800 px-3 py-2 flex flex-wrap items-center justify-between gap-2 z-10">
+                <div class="flex items-center space-x-1 sm:space-x-2 overflow-x-auto">
+                    <button id="toolRed" onclick="selectTool('red')" class="tool-btn px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-red-500/50 bg-red-950/40 text-red-300 hover:bg-red-900/50 flex items-center gap-1.5 transition">
+                        <span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                        <span>1. Dist. Árboles (Roja)</span>
+                    </button>
+                    <button id="toolBlue" onclick="selectTool('blue')" class="tool-btn px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-blue-500/50 bg-blue-950/40 text-blue-300 hover:bg-blue-900/50 flex items-center gap-1.5 transition">
+                        <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                        <span>2. Límite Copa (Azul)</span>
+                    </button>
+                    <button id="toolGreen" onclick="selectTool('green')" class="tool-btn px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-emerald-500/50 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50 flex items-center gap-1.5 transition">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                        <span>3. Banda Poda (Verde)</span>
+                    </button>
+                </div>
+
+                <div class="flex items-center space-x-2">
+                    <button onclick="resetLines()" class="text-xs text-slate-400 hover:text-slate-100 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-700 transition flex items-center gap-1">
+                        <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                        <span>Limpiar Líneas</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Viewport Canvas -->
+            <div id="canvasViewport" class="flex-1 relative flex items-center justify-center p-2 overflow-hidden bg-slate-950">
+                <canvas id="photoCanvas" class="max-w-full max-h-full cursor-crosshair rounded shadow-2xl transition-opacity duration-300 opacity-0"></canvas>
+                
+                <!-- Estado Inicial Vacío -->
+                <div id="emptyState" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400 p-6 text-center">
+                    <div class="w-16 h-16 rounded-2xl bg-slate-900 flex items-center justify-center mb-4 text-emerald-400 border border-slate-800 shadow-inner">
+                        <i data-lucide="image" class="w-8 h-8"></i>
+                    </div>
+                    <h3 class="text-base font-bold text-slate-200 mb-1">Fotografía no cargada</h3>
+                    <p class="text-xs text-slate-500 max-w-sm mb-4">Seleccione una imagen de la parcela para iniciar el análisis fotogramétrico.</p>
+                    <label for="imageLoader" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg cursor-pointer transition shadow">
+                        Seleccionar Imagen
+                    </label>
+                </div>
+            </div>
+        </main>
+
+        <!-- PANEL LATERAL DERECHO (REORDENADO) -->
+        <aside class="w-full lg:w-[410px] bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col h-1/2 lg:h-full overflow-y-auto shrink-0">
+            <div class="p-3 space-y-3">
+
+                <!-- PANEL 1: LOCALIZACIÓN Y SIGPAC -->
+                <details id="panelSigpac" class="group bg-slate-950/80 rounded-xl border border-slate-800 overflow-hidden" open>
+                    <summary onclick="setTimeout(invalidateMaps, 250)" class="flex items-center justify-between p-3 bg-slate-900/90 cursor-pointer select-none font-bold text-xs uppercase tracking-wider text-emerald-400 border-b border-slate-800/60 hover:bg-slate-800/50">
+                        <span class="flex items-center gap-2">
+                            <i data-lucide="map-pin" class="w-4 h-4"></i>
+                            1. Localización y SIGPAC
+                        </span>
+                        <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 group-open:rotate-180 transition-transform"></i>
+                    </summary>
+                    <div class="p-3 space-y-3">
+                        <form id="sigpacForm" class="space-y-2">
+                            <div class="grid grid-cols-4 gap-1.5 text-xs">
+                                <div><label class="block text-[10px] text-slate-400 font-semibold mb-0.5">Provincia</label><input type="number" id="prov" value="" placeholder="ej. 46" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center font-mono text-xs focus:border-emerald-500 focus:outline-none"></div>
+                                <div><label class="block text-[10px] text-slate-400 font-semibold mb-0.5">Municipio</label><input type="number" id="muni" value="" placeholder="ej. 215" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center font-mono text-xs focus:border-emerald-500 focus:outline-none"></div>
+                                <div><label class="block text-[10px] text-slate-400 font-semibold mb-0.5">Agregado</label><input type="number" id="agr" value="" placeholder="ej. 0" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center font-mono text-xs focus:border-emerald-500 focus:outline-none"></div>
+                                <div><label class="block text-[10px] text-slate-400 font-semibold mb-0.5">Zona</label><input type="number" id="zona" value="" placeholder="ej. 0" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center font-mono text-xs focus:border-emerald-500 focus:outline-none"></div>
+                            </div>
+                            <div class="grid grid-cols-3 gap-1.5 text-xs">
+                                <div><label class="block text-[10px] text-slate-400 font-semibold mb-0.5">Polígono</label><input type="number" id="poli" value="" placeholder="ej. 1" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center font-mono text-xs focus:border-emerald-500 focus:outline-none"></div>
+                                <div><label class="block text-[10px] text-slate-400 font-semibold mb-0.5">Parcela</label><input type="number" id="parc" value="" placeholder="ej. 2" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center font-mono text-xs focus:border-emerald-500 focus:outline-none"></div>
+                                <div><label class="block text-[10px] text-slate-400 font-semibold mb-0.5">Recinto</label><input type="number" id="rec" value="" placeholder="ej. 1" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center font-mono text-xs focus:border-emerald-500 focus:outline-none"></div>
+                            </div>
+                            
+                            <!-- Botones de Acción -->
+                            <div class="flex gap-2 mt-1">
+                                <button type="submit" class="flex-1 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold py-1.5 rounded transition flex items-center justify-center gap-1">
+                                    <i data-lucide="search" class="w-3.5 h-3.5"></i>
+                                    <span>Buscar Recinto</span>
+                                </button>
+                                <button type="button" id="btnGmaps" class="hidden flex-1 bg-red-600 hover:bg-red-500 text-white text-xs font-bold py-1.5 rounded transition flex items-center justify-center gap-1 shadow">
+                                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                                    <span>Ver en Google Maps</span>
+                                </button>
+                            </div>
+                        </form>
+
+                        <!-- Contenedor del Mapa (Oculto hasta buscar) -->
+                        <div id="mapWrapper" class="relative rounded-lg border border-slate-800 overflow-hidden shadow-md hidden">
+                            <div id="mainMap" class="w-full h-48 z-0"></div>
+                            <div class="absolute bottom-1 right-1 z-[1000] bg-slate-950/80 backdrop-blur text-[10px] font-mono px-2 py-0.5 rounded border border-slate-800 text-slate-300">
+                                Ortofoto PNOA IGN
+                            </div>
+                        </div>
+                        <div id="mapPlaceholder" class="w-full h-32 rounded-lg border border-slate-800 bg-slate-900/50 flex flex-col items-center justify-center text-slate-500 text-xs p-4 text-center">
+                            <i data-lucide="map" class="w-6 h-6 mb-1 text-slate-600"></i>
+                            Recinto no seleccionado. Introduzca los datos y pulse <strong>"Buscar Recinto"</strong>.
+                        </div>
+                    </div>
+                </details>
+
+                <!-- PANEL 2: CALIBRACIÓN & CUMPLIMIENTO -->
+                <details id="panelCalib" class="group bg-slate-950/80 rounded-xl border border-slate-800 overflow-hidden" open>
+                    <summary class="flex items-center justify-between p-3 bg-slate-900/90 cursor-pointer select-none font-bold text-xs uppercase tracking-wider text-amber-400 border-b border-slate-800/60 hover:bg-slate-800/50">
+                        <span class="flex items-center gap-2">
+                            <i data-lucide="scale" class="w-4 h-4"></i>
+                            2. Calibración & Cumplimiento
+                        </span>
+                        <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 group-open:rotate-180 transition-transform"></i>
+                    </summary>
+                    <div class="p-3 space-y-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-300 mb-1">
+                                Distancia real en el suelo (Línea Roja):
+                            </label>
+                            <div class="flex items-center gap-2">
+                                <input type="number" id="inputRealDist" value="6.00" step="0.1" min="0.1" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs font-bold text-slate-100 focus:border-emerald-500 focus:outline-none">
+                                <span class="text-xs font-bold text-slate-400">Metros</span>
+                            </div>
+                        </div>
+
+                        <div class="p-2.5 bg-slate-900/90 rounded-lg border border-slate-800 space-y-1.5 text-xs font-mono">
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Anchura Proyección Copa (Azul):</span>
+                                <span id="valCrownDist" class="text-sky-300 font-bold">0.00 m</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Anchura Banda Poda (Verde):</span>
+                                <span id="valMulchDist" class="text-emerald-400 font-bold">0.00 m</span>
+                            </div>
+                            <div class="flex justify-between border-t border-slate-800 pt-1.5">
+                                <span class="text-slate-300 font-semibold">% de Cobertura de Copa:</span>
+                                <span id="valPercent" class="text-amber-400 font-bold">0.0 %</span>
+                            </div>
+                        </div>
+
+                        <!-- BADGE CUMPLE / NO CUMPLE -->
+                        <div id="complianceBadge" class="p-3 rounded-lg border text-center transition-all duration-300 bg-slate-900 border-slate-800 text-slate-500 font-semibold text-xs">
+                            MEDICIÓN PENDIENTE
+                        </div>
+
+                        <div class="text-[10px] text-slate-400 leading-tight space-y-1 bg-slate-900/50 p-2 rounded border border-slate-800">
+                            <p class="font-bold text-slate-300">Normativa Ecorrégimen (Agricultura de Carbono):</p>
+                            <p>• La banda verde debe ser ≥ 40% de la anchura libre de copa (azul).</p>
+                            <p>• La banda de restos no puede ser inferior a 0,5 metros de ancho absoluto.</p>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- PANEL 3: METADATOS ÓPTICA & GPS -->
+                <details id="panelExif" class="group bg-slate-950/80 rounded-xl border border-slate-800 overflow-hidden" open>
+                    <summary class="flex items-center justify-between p-3 bg-slate-900/90 cursor-pointer select-none font-bold text-xs uppercase tracking-wider text-sky-400 border-b border-slate-800/60 hover:bg-slate-800/50">
+                        <span class="flex items-center gap-2">
+                            <i data-lucide="camera" class="w-4 h-4"></i>
+                            3. Metadatos Óptica & GPS
+                        </span>
+                        <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 group-open:rotate-180 transition-transform"></i>
+                    </summary>
+                    <div class="p-3 space-y-1.5 text-xs font-mono">
+                        <div class="flex justify-between border-b border-slate-900 pb-1">
+                            <span class="text-slate-400">Cámara / Modelo:</span>
+                            <span id="exifCamera" class="text-slate-200 font-semibold">--</span>
+                        </div>
+                        <div class="flex justify-between border-b border-slate-900 pb-1">
+                            <span class="text-slate-400">Distancia Focal:</span>
+                            <span id="exifFocal" class="text-slate-200 font-semibold">--</span>
+                        </div>
+                        <div class="flex justify-between border-b border-slate-900 pb-1">
+                            <span class="text-slate-400">Apertura (f):</span>
+                            <span id="exifAperture" class="text-slate-200 font-semibold">--</span>
+                        </div>
+                        <div class="flex justify-between border-b border-slate-900 pb-1">
+                            <span class="text-slate-400">Fecha / Hora:</span>
+                            <span id="exifDate" class="text-slate-200 font-semibold">--</span>
+                        </div>
+                        <div class="flex justify-between border-b border-slate-900 pb-1">
+                            <span class="text-slate-400">Latitud:</span>
+                            <span id="exifLat" class="text-emerald-400 font-semibold">--</span>
+                        </div>
+                        <div class="flex justify-between border-b border-slate-900 pb-1">
+                            <span class="text-slate-400">Longitud:</span>
+                            <span id="exifLng" class="text-emerald-400 font-semibold">--</span>
+                        </div>
+                        <div class="flex justify-between border-b border-slate-900 pb-1">
+                            <span class="text-slate-400">Altitud:</span>
+                            <span id="exifAlt" class="text-slate-200 font-semibold">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-slate-400">Orientación (Heading):</span>
+                            <span id="exifHeading" class="text-amber-400 font-bold">--</span>
+                        </div>
+                    </div>
+                </details>
+
+            </div>
+        </aside>
+    </div>
+
+    <!-- SCRIPT DE LÓGICA DE LA APLICACIÓN -->
+    <script>
+        lucide.createIcons();
+
+        // URL directa en crudo (RAW) del logotipo
+        const logoBase64 = "https://raw.githubusercontent.com/vaersiano/fichas/main/vaersa.png";
+        document.getElementById('headerLogoImg').src = logoBase64;
+
+        const canvas = document.getElementById('photoCanvas');
+        const ctx = canvas.getContext('2d');
+        const emptyState = document.getElementById('emptyState');
+        const btnExport = document.getElementById('btnExport');
+        const btnGmaps = document.getElementById('btnGmaps');
+
+        const logoImg = new Image();
+        logoImg.crossOrigin = "anonymous";
+        logoImg.onload = () => { if (loadedImg) recalculateAndRedraw(); };
+        logoImg.src = logoBase64;
+
+        let loadedImg = null;
+        let activeTool = 'red';
+        let isDrawing = false;
+        let startPt = null;
+
+        let lineRed = null;   
+        let lineBlue = null;  
+        let lineGreen = null; 
+
+        let realDistRed = 6.00;
+        let pxToMeter = 0;
+        let crownMeters = 0;
+        let mulchMeters = 0;
+        let mulchPercent = 0;
+        let isCompliant = false;
+
+        let currentPos = { lat: 38.7000, lng: -0.4000, alt: 700, heading: 35 };
+        let parcelCoords = [];
+        let parcelSearched = false;
+
+        let mainMap = null;
+        let mainPolygonLayer = null;
+        let mainMarkerLayer = null;
+        let cartoucheMapCanvas = document.createElement('canvas');
+        cartoucheMapCanvas.width = 256;
+        cartoucheMapCanvas.height = 256;
+        let cartoucheMapCtx = cartoucheMapCanvas.getContext('2d');
+        let cartoucheMapLoaded = false;
+
+        const WMTS_PNOA = 'https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetTile&version=1.0.0' +
+            '&Layer=OI.OrthoimageCoverage&Style=default&Format=image/jpeg' +
+            '&TileMatrixSet=GoogleMapsCompatible&TileMatrix={z}&TileRow={y}&TileCol={x}';
+
+        function initMainMap() {
+            if (mainMap !== null) return;
+            mainMap = L.map('mainMap', { zoomControl: true, attributionControl: false }).setView([currentPos.lat, currentPos.lng], 16);
+            L.tileLayer(WMTS_PNOA, { maxZoom: 20, maxNativeZoom: 19 }).addTo(mainMap);
+            updateMapGraphic();
+        }
+
+        function invalidateMaps() {
+            if (mainMap) mainMap.invalidateSize();
+        }
+
+        function updateMapGraphic(wktCoords = null) {
+            if (!mainMap) return;
+
+            if (mainMarkerLayer) mainMap.removeLayer(mainMarkerLayer);
+            if (mainPolygonLayer) mainMap.removeLayer(mainPolygonLayer);
+
+            const markerGroup = L.layerGroup();
+            
+            const cameraMarker = L.circleMarker([currentPos.lat, currentPos.lng], {
+                radius: 6,
+                color: '#ffffff',
+                fillColor: '#10b981',
+                fillOpacity: 1,
+                weight: 2
+            });
+            markerGroup.addLayer(cameraMarker);
+
+            const coneAngle = 35;
+            const coneDist = 0.0006;
+            const radH = (currentPos.heading - 90) * (Math.PI / 180);
+            const radHalf = (coneAngle / 2) * (Math.PI / 180);
+
+            const p1 = [currentPos.lat, currentPos.lng];
+            const p2 = [
+                currentPos.lat + coneDist * Math.sin(radH - radHalf),
+                currentPos.lng + coneDist * Math.cos(radH - radHalf) * 1.3
+            ];
+            const p3 = [
+                currentPos.lat + coneDist * Math.sin(radH + radHalf),
+                currentPos.lng + coneDist * Math.cos(radH + radHalf) * 1.3
+            ];
+
+            const conePoly = L.polygon([p1, p2, p3], {
+                color: '#22c55e',
+                fillColor: '#4ade80',
+                fillOpacity: 0.45,
+                weight: 1.5
+            });
+            markerGroup.addLayer(conePoly);
+            markerGroup.addTo(mainMap);
+            mainMarkerLayer = markerGroup;
+
+            if (wktCoords && wktCoords.length > 0) {
+                parcelCoords = wktCoords;
+                mainPolygonLayer = L.polygon(wktCoords, {
+                    color: '#38bdf8',
+                    weight: 3,
+                    fillColor: '#0284c7',
+                    fillOpacity: 0.25
+                }).addTo(mainMap);
+
+                mainMap.fitBounds(mainPolygonLayer.getBounds(), { padding: [20, 20] });
+            } else {
+                mainMap.setView([currentPos.lat, currentPos.lng], 16);
+            }
+
+            updateCartoucheOrthoTile();
+        }
+
+        function updateCartoucheOrthoTile() {
+            const z = 16;
+            const x = Math.floor((currentPos.lng + 180) / 360 * Math.pow(2, z));
+            const y = Math.floor((1 - Math.log(Math.tan(currentPos.lat * Math.PI / 180) + 1 / Math.cos(currentPos.lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, z));
+            
+            const tileUrl = `https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetTile&version=1.0.0&Layer=OI.OrthoimageCoverage&Style=default&Format=image/jpeg&TileMatrixSet=GoogleMapsCompatible&TileMatrix=${z}&TileRow=${y}&TileCol=${x}`;
+            
+            const imgTile = new Image();
+            imgTile.crossOrigin = "anonymous";
+            imgTile.onload = function() {
+                cartoucheMapCtx.drawImage(imgTile, 0, 0, 256, 256);
+                cartoucheMapLoaded = true;
+                recalculateAndRedraw();
+            };
+            imgTile.onerror = function() {
+                cartoucheMapLoaded = false;
+            };
+            imgTile.src = tileUrl;
+        }
+
+        document.getElementById('sigpacForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const pr = document.getElementById('prov').value;
+            const mu = document.getElementById('muni').value;
+            const ag = document.getElementById('agr').value;
+            const zo = document.getElementById('zona').value;
+            const po = document.getElementById('poli').value;
+            const pa = document.getElementById('parc').value;
+            const re = document.getElementById('rec').value;
+
+            if (!pr || !mu || !po || !pa || !re) {
+                alert("Por favor complete los campos obligatorios del recinto SIGPAC.");
+                return;
+            }
+
+            const url = `https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/${pr}/${mu}/${ag||0}/${zo||0}/${po}/${pa}/${re}.json`;
+
+            fetch(url)
+                .then(res => res.json())
+                .then(data => {
+                    const item = Array.isArray(data) ? data[0] : data;
+                    if (!item) return;
+
+                    const wkt = item.wkt || item.WKT;
+                    if (wkt) {
+                        const coords = parseWKT(wkt);
+                        if (coords.length > 0) {
+                            let sumLat = 0, sumLng = 0;
+                            coords.forEach(c => { sumLat += c[0]; sumLng += c[1]; });
+                            currentPos.lat = sumLat / coords.length;
+                            currentPos.lng = sumLng / coords.length;
+
+                            document.getElementById('exifLat').textContent = currentPos.lat.toFixed(6);
+                            document.getElementById('exifLng').textContent = currentPos.lng.toFixed(6);
+
+                            parcelSearched = true;
+                            document.getElementById('mapWrapper').classList.remove('hidden');
+                            document.getElementById('mapPlaceholder').classList.add('hidden');
+                            btnGmaps.classList.remove('hidden');
+                            
+                            initMainMap();
+                            updateMapGraphic(coords);
+                            recalculateAndRedraw();
+                        }
+                    }
+                })
+                .catch(err => {
+                    console.warn("Error consultando API SIGPAC:", err);
+                });
+        });
+
+        // Evento botón Google Maps
+        btnGmaps.addEventListener('click', () => {
+            if (currentPos.lat && currentPos.lng) {
+                const gmapsUrl = `https://www.google.com/maps?q=${currentPos.lat},${currentPos.lng}`;
+                window.open(gmapsUrl, '_blank');
+            }
+        });
+
+        function parseWKT(wkt) {
+            const regex = /[-+]?[0-9]*\.?[0-9]+/g;
+            const matches = wkt.match(regex);
+            let latlngs = [];
+            if (!matches) return latlngs;
+
+            for (let i = 0; i < matches.length; i += 2) {
+                if (i === 0 && (matches[i] === '4258' || matches[i] === '4326') && matches.length % 2 !== 0) { i--; continue; }
+                const lng = parseFloat(matches[i]);
+                const lat = parseFloat(matches[i+1]);
+                if (!isNaN(lat) && !isNaN(lng)) latlngs.push([lat, lng]);
+            }
+            return latlngs;
+        }
+
+        document.getElementById('imageLoader').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            try {
+                const exif = await exifr.parse(file, { gps: true, reviveValues: true });
+                if (exif) {
+                    document.getElementById('exifCamera').textContent = (exif.Make || '') + ' ' + (exif.Model || 'Cámara Estándar');
+                    document.getElementById('exifFocal').textContent = exif.FocalLength ? exif.FocalLength + ' mm' : '--';
+                    document.getElementById('exifAperture').textContent = exif.FNumber ? 'f/' + exif.FNumber : '--';
+                    document.getElementById('exifDate').textContent = exif.DateTimeOriginal ? new Date(exif.DateTimeOriginal).toLocaleString() : '--';
+
+                    if (exif.latitude && exif.longitude) {
+                        currentPos.lat = exif.latitude;
+                        currentPos.lng = exif.longitude;
+                        document.getElementById('exifLat').textContent = currentPos.lat.toFixed(6);
+                        document.getElementById('exifLng').textContent = currentPos.lng.toFixed(6);
+                    }
+                    if (exif.GPSAltitude) {
+                        currentPos.alt = Math.round(exif.GPSAltitude);
+                        document.getElementById('exifAlt').textContent = currentPos.alt + ' m';
+                    }
+                    if (exif.GPSImgDirection || exif.GPSDestBearing) {
+                        currentPos.heading = Math.round(exif.GPSImgDirection || exif.GPSDestBearing);
+                        document.getElementById('exifHeading').textContent = currentPos.heading + '°';
+                    }
+                    if (parcelSearched) updateMapGraphic();
+                }
+            } catch (err) {
+                console.warn("EXIF no presente o irreconocible:", err);
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const img = new Image();
+                img.onload = function() {
+                    loadedImg = img;
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+
+                    resetLines();
+                    emptyState.classList.add('hidden');
+                    canvas.classList.remove('opacity-0');
+                    btnExport.disabled = false;
+
+                    recalculateAndRedraw();
+                };
+                img.src = evt.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        function selectTool(tool) {
+            activeTool = tool;
+            ['red', 'blue', 'green'].forEach(t => {
+                const btn = document.getElementById('tool' + t.charAt(0).toUpperCase() + t.slice(1));
+                if (t === tool) btn.classList.add('tool-active');
+                else btn.classList.remove('tool-active');
+            });
+        }
+        selectTool('red');
+
+        function resetLines() {
+            lineRed = null;
+            lineBlue = null;
+            lineGreen = null;
+            recalculateAndRedraw();
+        }
+
+        document.getElementById('inputRealDist').addEventListener('input', (e) => {
+            realDistRed = parseFloat(e.target.value) || 1.0;
+            recalculateAndRedraw();
+        });
+
+        function getCanvasCoords(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            return {
+                x: (clientX - rect.left) * (canvas.width / rect.width),
+                y: (clientY - rect.top) * (canvas.height / rect.height)
+            };
+        }
+
+        function onMouseDown(e) {
+            if (!loadedImg) return;
+            isDrawing = true;
+            startPt = getCanvasCoords(e);
+        }
+
+        function onMouseMove(e) {
+            if (!isDrawing || !loadedImg) return;
+            const currentPt = getCanvasCoords(e);
+            const previewLine = { x1: startPt.x, y1: startPt.y, x2: currentPt.x, y2: currentPt.y };
+            recalculateAndRedraw(previewLine);
+        }
+
+        function onMouseUp(e) {
+            if (!isDrawing || !loadedImg) return;
+            isDrawing = false;
+
+            let endPt;
+            if (e.changedTouches) {
+                const rect = canvas.getBoundingClientRect();
+                endPt = {
+                    x: (e.changedTouches[0].clientX - rect.left) * (canvas.width / rect.width),
+                    y: (e.changedTouches[0].clientY - rect.top) * (canvas.height / rect.height)
+                };
+            } else {
+                endPt = getCanvasCoords(e);
+            }
+
+            if (Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y) > 5) {
+                const newLine = { x1: startPt.x, y1: startPt.y, x2: endPt.x, y2: endPt.y };
+                if (activeTool === 'red') lineRed = newLine;
+                if (activeTool === 'blue') lineBlue = newLine;
+                if (activeTool === 'green') lineGreen = newLine;
+            }
+            startPt = null;
+            recalculateAndRedraw();
+        }
+
+        canvas.addEventListener('mousedown', onMouseDown);
+        canvas.addEventListener('mousemove', onMouseMove);
+        canvas.addEventListener('mouseup', onMouseUp);
+
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); onMouseDown(e); }, { passive: false });
+        canvas.addEventListener('touchmove', (e) => { e.preventDefault(); onMouseMove(e); }, { passive: false });
+        canvas.addEventListener('touchend', (e) => { e.preventDefault(); onMouseUp(e); }, { passive: false });
+
+        function recalculateAndRedraw(previewLine = null) {
+            if (!loadedImg) return;
+
+            if (lineRed) {
+                const redPx = Math.hypot(lineRed.x2 - lineRed.x1, lineRed.y2 - lineRed.y1);
+                pxToMeter = realDistRed / redPx;
+            } else {
+                pxToMeter = 0;
+            }
+
+            if (lineBlue && pxToMeter > 0) {
+                const bluePx = Math.hypot(lineBlue.x2 - lineBlue.x1, lineBlue.y2 - lineBlue.y1);
+                crownMeters = bluePx * pxToMeter;
+            } else crownMeters = 0;
+
+            if (lineGreen && pxToMeter > 0) {
+                const greenPx = Math.hypot(lineGreen.x2 - lineGreen.x1, lineGreen.y2 - lineGreen.y1);
+                mulchMeters = greenPx * pxToMeter;
+            } else mulchMeters = 0;
+
+            if (crownMeters > 0) {
+                mulchPercent = (mulchMeters / crownMeters) * 100;
+            } else mulchPercent = 0;
+
+            isCompliant = (mulchPercent >= 40.0) && (mulchMeters >= 0.5);
+
+            document.getElementById('valCrownDist').textContent = crownMeters.toFixed(2) + ' m';
+            document.getElementById('valMulchDist').textContent = mulchMeters.toFixed(2) + ' m';
+            document.getElementById('valPercent').textContent = mulchPercent.toFixed(1) + ' %';
+
+            const badge = document.getElementById('complianceBadge');
+            if (lineBlue && lineGreen) {
+                if (isCompliant) {
+                    badge.textContent = 'CUMPLE ECORRÉGIMEN';
+                    badge.className = 'p-3 rounded-lg border text-center font-black tracking-wider text-sm bg-emerald-950 border-emerald-500 text-emerald-400 shadow';
+                } else {
+                    badge.textContent = 'NO CUMPLE ECORRÉGIMEN';
+                    badge.className = 'p-3 rounded-lg border text-center font-black tracking-wider text-sm bg-rose-950 border-rose-500 text-rose-400 shadow';
+                }
+            } else {
+                badge.textContent = 'MEDICIÓN PENDIENTE';
+                badge.className = 'p-3 rounded-lg border text-center font-semibold text-xs bg-slate-900 border-slate-800 text-slate-500';
+            }
+
+            renderCanvas(previewLine);
+        }
+
+        function renderCanvas(previewLine = null) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(loadedImg, 0, 0);
+
+            const baseWidth = Math.max(3, canvas.width / 260);
+            const fontSize = Math.max(14, Math.round(canvas.width / 52));
+
+            function drawSegment(line, color, text, isBlueBoundary = false) {
+                if (!line) return;
+
+                ctx.save();
+                ctx.strokeStyle = color;
+                ctx.fillStyle = color;
+                ctx.lineWidth = baseWidth;
+
+                if (isBlueBoundary) {
+                    const h = canvas.height * 0.35;
+                    ctx.beginPath();
+                    ctx.moveTo(line.x1, line.y1);
+                    ctx.lineTo(line.x1, line.y1 - h);
+                    ctx.moveTo(line.x2, line.y2);
+                    ctx.lineTo(line.x2, line.y2 - h);
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.setLineDash([8, 6]);
+                    ctx.moveTo(line.x1, line.y1 - h);
+                    ctx.lineTo(line.x2, line.y2 - h);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                } else {
+                    ctx.beginPath();
+                    ctx.moveTo(line.x1, line.y1);
+                    ctx.lineTo(line.x2, line.y2);
+                    ctx.stroke();
+
+                    [ {x: line.x1, y: line.y1}, {x: line.x2, y: line.y2} ].forEach(pt => {
+                        ctx.beginPath();
+                        ctx.arc(pt.x, pt.y, baseWidth * 1.6, 0, 2 * Math.PI);
+                        ctx.fill();
+                    });
+                }
+
+                if (text) {
+                    const midX = (line.x1 + line.x2) / 2;
+                    const midY = (line.y1 + line.y2) / 2 + (isBlueBoundary ? -canvas.height * 0.35 - 12 : 18);
+
+                    ctx.font = `bold ${fontSize}px sans-serif`;
+                    const metrics = ctx.measureText(text);
+                    const pad = 6;
+
+                    ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+                    ctx.fillRect(midX - metrics.width / 2 - pad, midY - fontSize / 2 - pad, metrics.width + pad * 2, fontSize + pad);
+
+                    ctx.fillStyle = color;
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText(text, midX, midY);
+                }
+                ctx.restore();
+            }
+
+            drawSegment(lineRed, '#ef4444', `${realDistRed.toFixed(2)} m (Referencia)`);
+            drawSegment(lineBlue, '#3b82f6', crownMeters > 0 ? `Proyección Copa: ${crownMeters.toFixed(2)} m` : 'Proyección Copa', true);
+            drawSegment(lineGreen, '#22c55e', mulchMeters > 0 ? `Poda: ${mulchMeters.toFixed(2)} m` : 'Banda Poda');
+
+            if (isDrawing && previewLine) {
+                const color = activeTool === 'red' ? '#ef4444' : (activeTool === 'blue' ? '#3b82f6' : '#22c55e');
+                drawSegment(previewLine, color, null, activeTool === 'blue');
+            }
+
+            // Rótulo CUMPLE / NO CUMPLE
+            if (lineBlue && lineGreen) {
+                ctx.save();
+                const stampText = isCompliant ? "CUMPLE" : "NO CUMPLE";
+                const stampColor = isCompliant ? "#22c55e" : "#ef4444";
+                const stampSize = Math.max(32, Math.round(canvas.width / 16));
+
+                ctx.font = `900 ${stampSize}px sans-serif`;
+                ctx.textAlign = "right";
+                ctx.textBaseline = "top";
+
+                ctx.fillStyle = "rgba(0,0,0,0.75)";
+                ctx.fillText(stampText, canvas.width - 25, 25);
+
+                ctx.fillStyle = stampColor;
+                ctx.fillText(stampText, canvas.width - 28, 22);
+                ctx.restore();
+            }
+
+            // LOGO EN LA ESQUINA SUPERIOR IZQUIERDA DE LA FOTOGRAFÍA
+            if (logoImg.complete && logoImg.naturalWidth > 0) {
+                const logoW = Math.max(160, canvas.width * 0.18);
+                const logoH = logoW * (logoImg.naturalHeight / logoImg.naturalWidth);
+                
+                ctx.save();
+                ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+                ctx.beginPath();
+                ctx.roundRect(20, 20, logoW + 16, logoH + 16, 8);
+                ctx.fill();
+                
+                ctx.drawImage(logoImg, 28, 28, logoW, logoH);
+                ctx.restore();
+            }
+
+            // Cartela inferior izquierda (Solo si se ha pulsado Buscar Recinto)
+            if (parcelSearched) {
+                drawCartouche();
+            }
+        }
+
+        function drawCartouche() {
+            const scaleFactor = Math.max(1, canvas.width / 900);
+            const w = Math.max(420, canvas.width * 0.42);
+            const h = Math.max(160, canvas.height * 0.24);
+            const x = 25;
+            const y = canvas.height - h - 25;
+
+            ctx.save();
+
+            ctx.fillStyle = "rgba(15, 23, 42, 0.94)";
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+            ctx.lineWidth = 2.5;
+
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, 14);
+            ctx.fill();
+            ctx.stroke();
+
+            const mapBoxSize = h - 30;
+            const mapX = x + 15;
+            const mapY = y + 15;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.roundRect(mapX, mapY, mapBoxSize, mapBoxSize, 8);
+            ctx.clip();
+
+            if (cartoucheMapLoaded) {
+                ctx.drawImage(cartoucheMapCanvas, 0, 0, 256, 256, mapX, mapY, mapBoxSize, mapBoxSize);
+            } else {
+                ctx.fillStyle = "#0f172a";
+                ctx.fillRect(mapX, mapY, mapBoxSize, mapBoxSize);
+            }
+
+            const cx = mapX + mapBoxSize / 2;
+            const cy = mapY + mapBoxSize / 2;
+
+            if (parcelCoords.length > 0) {
+                ctx.beginPath();
+                let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
+                parcelCoords.forEach(c => {
+                    if (c[0] < minLat) minLat = c[0];
+                    if (c[0] > maxLat) maxLat = c[0];
+                    if (c[1] < minLng) minLng = c[1];
+                    if (c[1] > maxLng) maxLng = c[1];
+                });
+
+                const latSpan = (maxLat - minLat) || 0.001;
+                const lngSpan = (maxLng - minLng) || 0.001;
+
+                parcelCoords.forEach((c, idx) => {
+                    const px = mapX + 10 + ((c[1] - minLng) / lngSpan) * (mapBoxSize - 20);
+                    const py = mapY + mapBoxSize - 10 - ((c[0] - minLat) / latSpan) * (mapBoxSize - 20);
+                    if (idx === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                });
+                ctx.closePath();
+                ctx.fillStyle = "rgba(2, 132, 199, 0.35)";
+                ctx.fill();
+                ctx.strokeStyle = "#38bdf8";
+                ctx.lineWidth = 2.5;
+                ctx.stroke();
+            }
+
+            const hRad = (currentPos.heading - 90) * (Math.PI / 180);
+            const coneR = mapBoxSize * 0.42;
+            const halfAngle = 0.35;
+
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.arc(cx, cy, coneR, hRad - halfAngle, hRad + halfAngle);
+            ctx.closePath();
+            ctx.fillStyle = "rgba(34, 197, 94, 0.45)";
+            ctx.fill();
+            ctx.strokeStyle = "#22c55e";
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, 4, 0, 2 * Math.PI);
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+
+            ctx.restore();
+            ctx.strokeStyle = "#475569";
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(mapX, mapY, mapBoxSize, mapBoxSize);
+
+            const textX = mapX + mapBoxSize + 16;
+            let textY = y + 26;
+            const lineGap = h / 5.2;
+
+            const pr = document.getElementById('prov').value || '00';
+            const mu = document.getElementById('muni').value || '000';
+            const ag = document.getElementById('agr').value || '0';
+            const zo = document.getElementById('zona').value || '0';
+            const po = document.getElementById('poli').value || '0';
+            const pa = document.getElementById('parc').value || '0';
+            const re = document.getElementById('rec').value || '0';
+
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+
+            ctx.font = `bold ${Math.round(14 * scaleFactor)}px sans-serif`;
+            ctx.fillStyle = "#38bdf8";
+            ctx.fillText("VERIFICACIÓN PODA PAC", textX, textY);
+
+            textY += lineGap;
+            ctx.font = `bold ${Math.round(13 * scaleFactor)}px monospace`;
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText(`${pr}-${mu}-${ag}-${zo}-${po}-${pa}-${re}`, textX, textY);
+
+            textY += lineGap;
+            ctx.font = `${Math.round(12 * scaleFactor)}px monospace`;
+            ctx.fillStyle = "#cbd5e1";
+            ctx.fillText(`${currentPos.lat.toFixed(5)}, ${currentPos.lng.toFixed(5)} (${currentPos.alt}m)`, textX, textY);
+
+            textY += lineGap;
+            ctx.fillText(`Orientación: ${currentPos.heading}° | Poda: ${mulchMeters.toFixed(2)}m (${mulchPercent.toFixed(0)}%)`, textX, textY);
+
+            textY += lineGap;
+            if (lineBlue && lineGreen) {
+                ctx.font = `bold ${Math.round(13 * scaleFactor)}px sans-serif`;
+                ctx.fillStyle = isCompliant ? "#4ade80" : "#f87171";
+                ctx.fillText(`ESTADO: ${isCompliant ? 'CUMPLE NORMATIVA' : 'NO CUMPLE NORMATIVA'}`, textX, textY);
+            } else {
+                ctx.font = `${Math.round(11 * scaleFactor)}px sans-serif`;
+                ctx.fillStyle = "#94a3b8";
+                ctx.fillText("ESTADO: Medición en curso", textX, textY);
+            }
+
+            ctx.restore();
+        }
+
+        document.getElementById('btnExport').addEventListener('click', () => {
+            if (!loadedImg) return;
+
+            recalculateAndRedraw();
+
+            const pr = document.getElementById('prov').value || '0';
+            const mu = document.getElementById('muni').value || '0';
+            const ag = document.getElementById('agr').value || '0';
+            const zo = document.getElementById('zona').value || '0';
+            const po = document.getElementById('poli').value || '0';
+            const pa = document.getElementById('parc').value || '0';
+            const re = document.getElementById('rec').value || '0';
+
+            const filename = `${pr}-${mu}-${ag}-${zo}-${po}-${pa}-${re}.jpg`;
+
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/jpeg', 0.95);
+            link.click();
+        });
+
+        window.addEventListener('resize', () => {
+            if (loadedImg) recalculateAndRedraw();
+            invalidateMaps();
+        });
+    </script>
+</body>
+</html>
