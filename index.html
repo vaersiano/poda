@@ -207,6 +207,7 @@
                             <p class="font-bold text-slate-300">Normativa Ecorrégimen (Agricultura de Carbono):</p>
                             <p>• La banda verde debe ser ≥ 40% de la anchura libre de copa (azul).</p>
                             <p>• La banda de restos no puede ser inferior a 0,5 metros de ancho absoluto.</p>
+                            <p>• Con pendiente ≥ 10 %, se exige mantener obligatoriamente una cubierta (vegetal o inerte) de al menos 1 m de anchura entre los meses de octubre y marzo.</p>
                         </div>
                     </div>
                 </details>
@@ -870,7 +871,7 @@
 
             ctx.font = `bold ${Math.round(14 * scaleFactor)}px sans-serif`;
             ctx.fillStyle = "#38bdf8";
-            ctx.fillText("VERIFICACIÓN PODA PAC", textX, textY);
+            ctx.fillText("VERIFICACIÓN RESTOS INERTES", textX, textY);
 
             textY += lineGap;
             ctx.font = `bold ${Math.round(13 * scaleFactor)}px monospace`;
@@ -880,7 +881,7 @@
             textY += lineGap;
             ctx.font = `${Math.round(12 * scaleFactor)}px monospace`;
             ctx.fillStyle = "#cbd5e1";
-            ctx.fillText(`${currentPos.lat.toFixed(5)}, ${currentPos.lng.toFixed(5)} (${currentPos.alt}m)`, textX, textY);
+            ctx.fillText(`${currentPos.lat.toFixed(5)}, ${currentPos.lng.toFixed(5)} (Altura ${currentPos.alt}m)`, textX, textY);
 
             textY += lineGap;
             ctx.fillText(`Orientación: ${currentPos.heading}° | Poda: ${mulchMeters.toFixed(2)}m (${mulchPercent.toFixed(0)}%)`, textX, textY);
