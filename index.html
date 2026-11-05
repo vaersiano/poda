@@ -13,6 +13,8 @@
     <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- jsPDF para exportación DIN A4 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
     <style>
         ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -47,6 +49,11 @@
         </div>
 
         <div class="flex items-center space-x-2">
+            <!-- Botón Rueda Dentada (Configuración) -->
+            <button id="btnSettings" onclick="toggleSettingsModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 p-2 rounded-lg transition border border-slate-700 shadow-sm" title="Ajustes de Capas y Visibilidad">
+                <i data-lucide="settings" class="w-4 h-4"></i>
+            </button>
+
             <label for="imageLoader" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer transition flex items-center gap-1.5 shadow-sm">
                 <i data-lucide="upload" class="w-4 h-4"></i>
                 <span class="hidden sm:inline">Cargar Fotografía</span>
@@ -55,10 +62,50 @@
 
             <button id="btnExport" class="bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed" disabled>
                 <i data-lucide="download" class="w-4 h-4"></i>
-                <span>Guardar Imagen Procesada</span>
+                <span class="hidden md:inline">Guardar JPG</span>
+            </button>
+
+            <button id="btnExportPdf" class="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed" disabled>
+                <i data-lucide="file-text" class="w-4 h-4"></i>
+                <span>Guardar Ficha PDF (A4)</span>
             </button>
         </div>
     </header>
+
+    <!-- MODAL DE CONFIGURACIÓN -->
+    <div id="settingsModal" class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 w-80 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
+                    <i data-lucide="sliders" class="w-4 h-4 text-emerald-400"></i>
+                    Opciones de Visibilidad
+                </h3>
+                <button onclick="toggleSettingsModal()" class="text-slate-400 hover:text-slate-200">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3 text-xs">
+                <!-- Toggle Logo sobre la Imagen -->
+                <label class="flex items-center justify-between p-2 rounded-lg bg-slate-950/50 border border-slate-800 cursor-pointer hover:border-slate-700 transition">
+                    <span class="font-medium text-slate-300">Mostrar Logo en Fotografía</span>
+                    <input type="checkbox" id="chkShowLogo" checked onchange="updateSettings()" class="w-4 h-4 accent-emerald-500 rounded cursor-pointer">
+                </label>
+
+                <!-- Toggle Rótulo Cumple/No Cumple -->
+                <label class="flex items-center justify-between p-2 rounded-lg bg-slate-950/50 border border-slate-800 cursor-pointer hover:border-slate-700 transition">
+                    <span class="font-medium text-slate-300">Mostrar Rótulo Cumple/No Cumple</span>
+                    <input type="checkbox" id="chkShowBadge" checked onchange="updateSettings()" class="w-4 h-4 accent-emerald-500 rounded cursor-pointer">
+                </label>
+            </div>
+
+            <div class="pt-2">
+                <button onclick="toggleSettingsModal()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1.5 rounded-lg text-xs transition">
+                    Aceptar
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- PANEL PRINCIPAL -->
     <div class="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
@@ -207,7 +254,6 @@
                             <p class="font-bold text-slate-300">Normativa Ecorrégimen (Agricultura de Carbono):</p>
                             <p>• La banda verde debe ser ≥ 40% de la anchura libre de copa (azul).</p>
                             <p>• La banda de restos no puede ser inferior a 0,5 metros de ancho absoluto.</p>
-                            <p>• Con pendiente ≥ 10 %, se exige mantener obligatoriamente una cubierta (vegetal o inerte) de al menos 1 m de anchura entre los meses de octubre y marzo.</p>
                         </div>
                     </div>
                 </details>
@@ -273,7 +319,12 @@
         const ctx = canvas.getContext('2d');
         const emptyState = document.getElementById('emptyState');
         const btnExport = document.getElementById('btnExport');
+        const btnExportPdf = document.getElementById('btnExportPdf');
         const btnGmaps = document.getElementById('btnGmaps');
+
+        // Banderas de visibilidad
+        let showLogoOnPhoto = true;
+        let showBadgeOnPhoto = true;
 
         const logoImg = new Image();
         logoImg.crossOrigin = "anonymous";
@@ -312,6 +363,17 @@
         const WMTS_PNOA = 'https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetTile&version=1.0.0' +
             '&Layer=OI.OrthoimageCoverage&Style=default&Format=image/jpeg' +
             '&TileMatrixSet=GoogleMapsCompatible&TileMatrix={z}&TileRow={y}&TileCol={x}';
+
+        function toggleSettingsModal() {
+            const modal = document.getElementById('settingsModal');
+            modal.classList.toggle('hidden');
+        }
+
+        function updateSettings() {
+            showLogoOnPhoto = document.getElementById('chkShowLogo').checked;
+            showBadgeOnPhoto = document.getElementById('chkShowBadge').checked;
+            if (loadedImg) recalculateAndRedraw();
+        }
 
         function initMainMap() {
             if (mainMap !== null) return;
@@ -522,6 +584,7 @@
                     emptyState.classList.add('hidden');
                     canvas.classList.remove('opacity-0');
                     btnExport.disabled = false;
+                    btnExportPdf.disabled = false;
 
                     recalculateAndRedraw();
                 };
@@ -727,12 +790,12 @@
                 drawSegment(previewLine, color, null, activeTool === 'blue');
             }
 
-            // Rótulo CUMPLE / NO CUMPLE
-            if (lineBlue && lineGreen) {
+            // Rótulo CUMPLE / NO CUMPLE (Solo si está activo en la configuración)
+            if (showBadgeOnPhoto && lineBlue && lineGreen) {
                 ctx.save();
                 const stampText = isCompliant ? "CUMPLE" : "NO CUMPLE";
                 const stampColor = isCompliant ? "#22c55e" : "#ef4444";
-                const stampSize = Math.max(32, Math.round(canvas.width / 32));
+                const stampSize = Math.max(32, Math.round(canvas.width / 16));
 
                 ctx.font = `900 ${stampSize}px sans-serif`;
                 ctx.textAlign = "right";
@@ -746,8 +809,8 @@
                 ctx.restore();
             }
 
-            // LOGO EN LA ESQUINA SUPERIOR IZQUIERDA DE LA FOTOGRAFÍA
-            if (logoImg.complete && logoImg.naturalWidth > 0) {
+            // LOGO EN LA ESQUINA SUPERIOR IZQUIERDA DE LA FOTOGRAFÍA (Solo si está activo en la configuración)
+            if (showLogoOnPhoto && logoImg.complete && logoImg.naturalWidth > 0) {
                 const logoW = Math.max(160, canvas.width * 0.18);
                 const logoH = logoW * (logoImg.naturalHeight / logoImg.naturalWidth);
                 
@@ -761,7 +824,7 @@
                 ctx.restore();
             }
 
-            // Cartela inferior izquierda (Solo si se ha pulsado Buscar Recinto)
+            // Cartela inferior izquierda (Permanente e intacta si se ha pulsado Buscar Recinto)
             if (parcelSearched) {
                 drawCartouche();
             }
@@ -871,7 +934,7 @@
 
             ctx.font = `bold ${Math.round(14 * scaleFactor)}px sans-serif`;
             ctx.fillStyle = "#38bdf8";
-            ctx.fillText("VERIFICACIÓN RESTOS INERTES", textX, textY);
+            ctx.fillText("VERIFICACIÓN PODA PAC", textX, textY);
 
             textY += lineGap;
             ctx.font = `bold ${Math.round(13 * scaleFactor)}px monospace`;
@@ -881,7 +944,7 @@
             textY += lineGap;
             ctx.font = `${Math.round(12 * scaleFactor)}px monospace`;
             ctx.fillStyle = "#cbd5e1";
-            ctx.fillText(`${currentPos.lat.toFixed(5)}, ${currentPos.lng.toFixed(5)} (Altura ${currentPos.alt}m)`, textX, textY);
+            ctx.fillText(`${currentPos.lat.toFixed(5)}, ${currentPos.lng.toFixed(5)} (${currentPos.alt}m)`, textX, textY);
 
             textY += lineGap;
             ctx.fillText(`Orientación: ${currentPos.heading}° | Poda: ${mulchMeters.toFixed(2)}m (${mulchPercent.toFixed(0)}%)`, textX, textY);
@@ -919,6 +982,166 @@
             link.download = filename;
             link.href = canvas.toDataURL('image/jpeg', 0.95);
             link.click();
+        });
+
+        // EXPORTAR FICHA COMPLETA EN PDF FORMATO A4 HORIZONTAL CON FONDO BLANCO
+        btnExportPdf.addEventListener('click', () => {
+            if (!loadedImg) return;
+
+            recalculateAndRedraw();
+
+            const { jsPDF } = window.jspdf;
+            // Orientación Horizontal (Landscape): 297mm x 210mm
+            const pdf = new jsPDF('l', 'mm', 'a4');
+
+            const pageWidth = 297;
+            const pageHeight = 210;
+            const margin = 10;
+
+            // 1. Encabezado en fondo blanco
+            pdf.setFillColor(255, 255, 255);
+            pdf.rect(0, 0, pageWidth, 20, 'F');
+
+            // Logotipo VAERSA en la cabecera
+            if (logoImg.complete && logoImg.naturalWidth > 0) {
+                try {
+                    const tempLogoCanvas = document.createElement('canvas');
+                    tempLogoCanvas.width = logoImg.naturalWidth;
+                    tempLogoCanvas.height = logoImg.naturalHeight;
+                    const tCtx = tempLogoCanvas.getContext('2d');
+                    tCtx.drawImage(logoImg, 0, 0);
+                    const logoDataUrl = tempLogoCanvas.toDataURL('image/png');
+                    pdf.addImage(logoDataUrl, 'PNG', margin, 3, 30, 14);
+                } catch(e) {
+                    console.warn("No se pudo incrustar el logo en el PDF:", e);
+                }
+            }
+
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(12);
+            pdf.setTextColor(15, 23, 42); // Texto oscuro profesional
+            pdf.text("FICHA DE VERIFICACIÓN FOTOGRAMÉTRICA DE PODA", pageWidth - margin, 10, { align: "right" });
+
+            pdf.setFont("helvetica", "normal");
+            pdf.setFontSize(8.5);
+            pdf.setTextColor(5, 150, 105);
+            pdf.text("Ecorrégimen PAC: Cubiertas Inertes y Vegetales (Agricultura de Carbono)", pageWidth - margin, 15, { align: "right" });
+
+            // Límite divisor del encabezado
+            pdf.setDrawColor(226, 232, 240);
+            pdf.setLineWidth(0.5);
+            pdf.line(margin, 20, pageWidth - margin, 20);
+
+            // 2. Contenedor Visual de la Imagen (Área amplia A4 Horizontal con fondo blanco)
+            const boxX = margin;
+            const boxY = 22;
+            const boxW = pageWidth - (margin * 2); // 277 mm
+            const boxH = 145; // Alto para albergar la fotografía en horizontal
+
+            pdf.setFillColor(255, 255, 255);
+            pdf.setDrawColor(203, 213, 225);
+            pdf.rect(boxX, boxY, boxW, boxH, 'FD');
+
+            // Mantener estricta proporción original de la imagen
+            const imgRatio = canvas.width / canvas.height;
+            const boxRatio = boxW / boxH;
+
+            let renderW, renderH;
+            if (imgRatio > boxRatio) {
+                renderW = boxW;
+                renderH = boxW / imgRatio;
+            } else {
+                renderH = boxH;
+                renderW = boxH * imgRatio;
+            }
+
+            const renderX = boxX + (boxW - renderW) / 2;
+            const renderY = boxY + (boxH - renderH) / 2;
+
+            // Renderizado de la foto procesada dentro del marco
+            const imgData = canvas.toDataURL('image/jpeg', 0.95);
+            pdf.addImage(imgData, 'JPEG', renderX, renderY, renderW, renderH);
+
+            // 3. Bloque Inferior de Datos Técnicos y Cumplimiento (Fondo Blanco)
+            const tableY = boxY + boxH + 4;
+            const tableH = 32;
+
+            pdf.setFillColor(255, 255, 255);
+            pdf.setDrawColor(203, 213, 225);
+            pdf.roundedRect(margin, tableY, boxW, tableH, 2, 2, 'FD');
+
+            const pr = document.getElementById('prov').value || '--';
+            const mu = document.getElementById('muni').value || '--';
+            const ag = document.getElementById('agr').value || '0';
+            const zo = document.getElementById('zona').value || '0';
+            const po = document.getElementById('poli').value || '--';
+            const pa = document.getElementById('parc').value || '--';
+            const re = document.getElementById('rec').value || '--';
+
+            // Columna 1: Información SIGPAC y Coordenadas GPS
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(9.5);
+            pdf.setTextColor(2, 132, 199);
+            pdf.text("DATOS TÉCNICOS Y LOCALIZACIÓN DEL RECINTO", margin + 5, tableY + 7);
+
+            pdf.setFont("helvetica", "normal");
+            pdf.setFontSize(8);
+            pdf.setTextColor(51, 65, 85);
+
+            pdf.text(`Referencia SIGPAC: Prov: ${pr} | Mun: ${mu} | Agr: ${ag} | Zona: ${zo} | Pol: ${po} | Par: ${pa} | Rec: ${re}`, margin + 5, tableY + 14);
+            pdf.text(`Coordenadas GPS: Lat ${currentPos.lat.toFixed(6)}° | Lng ${currentPos.lng.toFixed(6)}° (${currentPos.alt}m) | Azimut: ${currentPos.heading}°`, margin + 5, tableY + 20);
+            pdf.text(`Mediciones: Copa (Azul) = ${crownMeters.toFixed(2)}m | Poda (Verde) = ${mulchMeters.toFixed(2)}m | Cobertura de Copa: ${mulchPercent.toFixed(1)}%`, margin + 5, tableY + 26);
+
+            // Columna 2: Sello Normativo CUMPLE / NO CUMPLE
+            const badgeX = margin + 175;
+            if (lineBlue && lineGreen) {
+                if (isCompliant) {
+                    pdf.setFillColor(236, 253, 245);
+                    pdf.setDrawColor(16, 185, 129);
+                    pdf.setTextColor(4, 120, 87);
+                    pdf.roundedRect(badgeX, tableY + 6, 52, 20, 2, 2, 'FD');
+                    pdf.setFont("helvetica", "bold");
+                    pdf.setFontSize(9);
+                    pdf.text("ESTADO: CUMPLE", badgeX + 26, tableY + 14, { align: "center" });
+                    pdf.setFontSize(7.5);
+                    pdf.text("NORMATIVA ECORRÉGIMEN", badgeX + 26, tableY + 20, { align: "center" });
+                } else {
+                    pdf.setFillColor(255, 241, 242);
+                    pdf.setDrawColor(244, 63, 94);
+                    pdf.setTextColor(190, 18, 60);
+                    pdf.roundedRect(badgeX, tableY + 6, 52, 20, 2, 2, 'FD');
+                    pdf.setFont("helvetica", "bold");
+                    pdf.setFontSize(9);
+                    pdf.text("ESTADO: NO CUMPLE", badgeX + 26, tableY + 14, { align: "center" });
+                    pdf.setFontSize(7.5);
+                    pdf.text("NORMATIVA ECORRÉGIMEN", badgeX + 26, tableY + 20, { align: "center" });
+                }
+            } else {
+                pdf.setFillColor(248, 250, 252);
+                pdf.setDrawColor(203, 213, 225);
+                pdf.setTextColor(100, 116, 139);
+                pdf.roundedRect(badgeX, tableY + 6, 52, 20, 2, 2, 'FD');
+                pdf.setFont("helvetica", "bold");
+                pdf.setFontSize(8);
+                pdf.text("MEDICIÓN PENDIENTE", badgeX + 26, tableY + 17, { align: "center" });
+            }
+
+            // Columna 3: Firma de Inspección
+            const sigX = pageWidth - margin - 40;
+            pdf.setDrawColor(148, 163, 184);
+            pdf.setLineDash([1, 1], 0);
+            pdf.line(sigX, tableY + 20, pageWidth - margin - 5, tableY + 20);
+            pdf.setFont("helvetica", "normal");
+            pdf.setFontSize(7);
+            pdf.setTextColor(100, 116, 139);
+            pdf.text("Firma / Validado por VAERSA", sigX + 17, tableY + 25, { align: "center" });
+
+            // Pie de página
+            pdf.setFontSize(6.5);
+            pdf.setTextColor(148, 163, 184);
+            pdf.text(`Ficha de Inspección Oficial A4 Horizontal - Generada el ${new Date().toLocaleDateString()} a las ${new Date().toLocaleTimeString()}`, margin, pageHeight - 3);
+
+            pdf.save(`Ficha_PAC_${pr}_${mu}_${po}_${pa}_${re}.pdf`);
         });
 
         window.addEventListener('resize', () => {
