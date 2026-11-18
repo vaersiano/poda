@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Poda Ecorrregímenes - Verificación Fotogramétrica</title>
+    <title>Poda Ecorrégímenes - Verificación Fotogramétrica</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Leaflet CSS & JS -->
@@ -89,14 +89,35 @@
                 <!-- Toggle Logo sobre la Imagen -->
                 <label class="flex items-center justify-between p-2 rounded-lg bg-slate-950/50 border border-slate-800 cursor-pointer hover:border-slate-700 transition">
                     <span class="font-medium text-slate-300">Mostrar Logo en Fotografía</span>
-                    <input type="checkbox" id="chkShowLogo" checked onchange="updateSettings()" class="w-4 h-4 accent-emerald-500 rounded cursor-pointer">
+                    <input type="checkbox" id="chkShowLogo" onchange="updateSettings()" class="w-4 h-4 accent-emerald-500 rounded cursor-pointer">
                 </label>
 
                 <!-- Toggle Rótulo Cumple/No Cumple -->
                 <label class="flex items-center justify-between p-2 rounded-lg bg-slate-950/50 border border-slate-800 cursor-pointer hover:border-slate-700 transition">
                     <span class="font-medium text-slate-300">Mostrar Rótulo Cumple/No Cumple</span>
-                    <input type="checkbox" id="chkShowBadge" checked onchange="updateSettings()" class="w-4 h-4 accent-emerald-500 rounded cursor-pointer">
+                    <input type="checkbox" id="chkShowBadge" onchange="updateSettings()" class="w-4 h-4 accent-emerald-500 rounded cursor-pointer">
                 </label>
+
+                <!-- Toggle Ocultar Longitudes (Solo Porcentaje) -->
+                <label class="flex items-center justify-between p-2 rounded-lg bg-slate-950/50 border border-slate-800 cursor-pointer hover:border-slate-700 transition">
+                    <span class="font-medium text-slate-300">Ocultar longitudes (solo %)</span>
+                    <input type="checkbox" id="chkOnlyPercent" checked onchange="updateSettings()" class="w-4 h-4 accent-emerald-500 rounded cursor-pointer">
+                </label>
+
+                <!-- Selector de posición de la cartela -->
+                <div class="p-2 rounded-lg bg-slate-950/50 border border-slate-800">
+                    <span class="font-medium text-slate-300 block mb-1.5">Posición de la Cartela</span>
+                    <div class="flex gap-2">
+                        <label class="flex-1 flex items-center justify-center gap-1.5 p-1.5 rounded border border-slate-700 bg-slate-900 cursor-pointer hover:border-slate-600 transition text-[11px] font-semibold text-slate-300">
+                            <input type="radio" name="cartouchePos" value="left" checked onchange="updateSettings()" class="w-3 h-3 accent-emerald-500 cursor-pointer">
+                            <span>Abajo Izq.</span>
+                        </label>
+                        <label class="flex-1 flex items-center justify-center gap-1.5 p-1.5 rounded border border-slate-700 bg-slate-900 cursor-pointer hover:border-slate-600 transition text-[11px] font-semibold text-slate-300">
+                            <input type="radio" name="cartouchePos" value="right" onchange="updateSettings()" class="w-3 h-3 accent-emerald-500 cursor-pointer">
+                            <span>Abajo Dcha.</span>
+                        </label>
+                    </div>
+                </div>
             </div>
 
             <div class="pt-2">
@@ -156,7 +177,7 @@
             </div>
         </main>
 
-        <!-- PANEL LATERAL DERECHO (REORDENADO) -->
+        <!-- PANEL LATERAL DERECHO -->
         <aside class="w-full lg:w-[410px] bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col h-1/2 lg:h-full overflow-y-auto shrink-0">
             <div class="p-3 space-y-3">
 
@@ -254,6 +275,7 @@
                             <p class="font-bold text-slate-300">Normativa Ecorrégimen (Agricultura de Carbono):</p>
                             <p>• La banda verde debe ser ≥ 40% de la anchura libre de copa (azul).</p>
                             <p>• La banda de restos no puede ser inferior a 0,5 metros de ancho absoluto.</p>
+                            <p>• Con pendiente ≥ 10 %, se exige mantener obligatoriamente una cubierta (vegetal o inerte) de al menos 1 m de anchura entre los meses de octubre y marzo.</p>
                         </div>
                     </div>
                 </details>
@@ -323,8 +345,14 @@
         const btnGmaps = document.getElementById('btnGmaps');
 
         // Banderas de visibilidad
-        let showLogoOnPhoto = true;
-        let showBadgeOnPhoto = true;
+        let showLogoOnPhoto = false;
+        let showBadgeOnPhoto = false;
+        let onlyShowPercent = true;
+        let cartouchePosition = 'left';
+
+        document.getElementById('chkShowLogo').checked = showLogoOnPhoto;
+        document.getElementById('chkShowBadge').checked = showBadgeOnPhoto;
+        document.getElementById('chkOnlyPercent').checked = onlyShowPercent;
 
         const logoImg = new Image();
         logoImg.crossOrigin = "anonymous";
@@ -351,6 +379,11 @@
         let parcelCoords = [];
         let parcelSearched = false;
 
+        // Variables SIGPAC ampliado
+        let datosRecinto = null;
+        let pendienteRecinto = 0;
+        let minAnchoRequerido = 0.5;
+
         let mainMap = null;
         let mainPolygonLayer = null;
         let mainMarkerLayer = null;
@@ -372,6 +405,9 @@
         function updateSettings() {
             showLogoOnPhoto = document.getElementById('chkShowLogo').checked;
             showBadgeOnPhoto = document.getElementById('chkShowBadge').checked;
+            onlyShowPercent = document.getElementById('chkOnlyPercent').checked;
+            const posRadio = document.querySelector('input[name="cartouchePos"]:checked');
+            cartouchePosition = posRadio ? posRadio.value : 'left';
             if (loadedImg) recalculateAndRedraw();
         }
 
@@ -481,13 +517,20 @@
                 return;
             }
 
-            const url = `https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/${pr}/${mu}/${ag||0}/${zo||0}/${po}/${pa}/${re}.json`;
+            const url = `https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/${pr}/${mu}/${ag||0}/${zo||0}/${po}/${pa}.json`;
 
             fetch(url)
                 .then(res => res.json())
                 .then(data => {
-                    const item = Array.isArray(data) ? data[0] : data;
-                    if (!item) return;
+                    const item = Array.isArray(data) ? data.find(r => r.recinto === parseInt(re)) : null;
+
+                    if (!item) {
+                        alert("No se ha encontrado el recinto " + re + " en la parcela indicada. Verifique los datos SIGPAC.");
+                        return;
+                    }
+
+                    datosRecinto = item;
+                    pendienteRecinto = item.pendiente_media || 0;
 
                     const wkt = item.wkt || item.WKT;
                     if (wkt) {
@@ -514,6 +557,7 @@
                 })
                 .catch(err => {
                     console.warn("Error consultando API SIGPAC:", err);
+                    alert("Error al consultar la API SIGPAC. Inténtelo de nuevo más tarde.");
                 });
         });
 
@@ -696,7 +740,13 @@
                 mulchPercent = (mulchMeters / crownMeters) * 100;
             } else mulchPercent = 0;
 
-            isCompliant = (mulchPercent >= 40.0) && (mulchMeters >= 0.5);
+            if (pendienteRecinto > 10) {
+                minAnchoRequerido = 1.5;
+            } else {
+                minAnchoRequerido = 0.5;
+            }
+
+            isCompliant = (mulchPercent >= 40.0) && (mulchMeters >= minAnchoRequerido);
 
             document.getElementById('valCrownDist').textContent = crownMeters.toFixed(2) + ' m';
             document.getElementById('valMulchDist').textContent = mulchMeters.toFixed(2) + ' m';
@@ -705,10 +755,10 @@
             const badge = document.getElementById('complianceBadge');
             if (lineBlue && lineGreen) {
                 if (isCompliant) {
-                    badge.textContent = 'CUMPLE ECORRÉGIMEN';
+                    badge.textContent = 'El porcentaje superficie libre con cubierta obtenido es compatible con el mínimo exigido en la normativa';
                     badge.className = 'p-3 rounded-lg border text-center font-black tracking-wider text-sm bg-emerald-950 border-emerald-500 text-emerald-400 shadow';
                 } else {
-                    badge.textContent = 'NO CUMPLE ECORRÉGIMEN';
+                    badge.textContent = 'El porcentaje superficie libre con cubierta obtenido es incompatible con el mínimo exigido en la normativa';
                     badge.className = 'p-3 rounded-lg border text-center font-black tracking-wider text-sm bg-rose-950 border-rose-500 text-rose-400 shadow';
                 }
             } else {
@@ -781,16 +831,25 @@
                 ctx.restore();
             }
 
-            drawSegment(lineRed, '#ef4444', `${realDistRed.toFixed(2)} m (Referencia)`);
-            drawSegment(lineBlue, '#3b82f6', crownMeters > 0 ? `Proyección Copa: ${crownMeters.toFixed(2)} m` : 'Proyección Copa', true);
-            drawSegment(lineGreen, '#22c55e', mulchMeters > 0 ? `Poda: ${mulchMeters.toFixed(2)} m` : 'Banda Poda');
+            // Etiquetas según opción "Ocultar longitudes (solo %)"
+            const textRed = onlyShowPercent ? null : `${realDistRed.toFixed(2)} m (Referencia)`;
+            const textBlue = onlyShowPercent 
+                ? null 
+                : (crownMeters > 0 ? `Proyección Copa: ${crownMeters.toFixed(2)} m` : 'Proyección Copa');
+            const textGreen = onlyShowPercent 
+                ? (mulchPercent > 0 ? `${mulchPercent.toFixed(0)}%` : null)
+                : (mulchMeters > 0 ? `Poda: ${mulchMeters.toFixed(2)} m` : 'Banda Poda');
+
+            drawSegment(lineRed, '#ef4444', textRed);
+            drawSegment(lineBlue, '#3b82f6', textBlue, true);
+            drawSegment(lineGreen, '#22c55e', textGreen);
 
             if (isDrawing && previewLine) {
                 const color = activeTool === 'red' ? '#ef4444' : (activeTool === 'blue' ? '#3b82f6' : '#22c55e');
                 drawSegment(previewLine, color, null, activeTool === 'blue');
             }
 
-            // Rótulo CUMPLE / NO CUMPLE (Solo si está activo en la configuración)
+            // Rótulo CUMPLE / NO CUMPLE
             if (showBadgeOnPhoto && lineBlue && lineGreen) {
                 ctx.save();
                 const stampText = isCompliant ? "CUMPLE" : "NO CUMPLE";
@@ -809,7 +868,7 @@
                 ctx.restore();
             }
 
-            // LOGO EN LA ESQUINA SUPERIOR IZQUIERDA DE LA FOTOGRAFÍA (Solo si está activo en la configuración)
+            // LOGO EN LA ESQUINA SUPERIOR IZQUIERDA
             if (showLogoOnPhoto && logoImg.complete && logoImg.naturalWidth > 0) {
                 const logoW = Math.max(160, canvas.width * 0.18);
                 const logoH = logoW * (logoImg.naturalHeight / logoImg.naturalWidth);
@@ -824,33 +883,108 @@
                 ctx.restore();
             }
 
-            // Cartela inferior izquierda (Permanente e intacta si se ha pulsado Buscar Recinto)
+            // Cartela
             if (parcelSearched) {
                 drawCartouche();
             }
         }
 
+        // CARTELA CON POSICIÓN CONFIGURABLE Y MODO SOLO PORCENTAJE
         function drawCartouche() {
             const scaleFactor = Math.max(1, canvas.width / 900);
-            const w = Math.max(420, canvas.width * 0.42);
-            const h = Math.max(160, canvas.height * 0.24);
-            const x = 25;
-            const y = canvas.height - h - 25;
+            const mapBoxSize = Math.max(120, canvas.height * 0.18);
+            const padding = 15;
+
+            const pr = document.getElementById('prov').value || '00';
+            const mu = document.getElementById('muni').value || '000';
+            const ag = document.getElementById('agr').value || '0';
+            const zo = document.getElementById('zona').value || '0';
+            const po = document.getElementById('poli').value || '0';
+            const pa = document.getElementById('parc').value || '0';
+            const re = document.getElementById('rec').value || '0';
+
+            const lineas = [];
+
+            // Línea 1: Título
+            lineas.push({
+                texto: "VERIFICACIÓN RESTOS INERTES",
+                font: `bold ${Math.round(14 * scaleFactor)}px sans-serif`,
+                color: "#38bdf8"
+            });
+
+            // Línea 2: Código SIGPAC
+            lineas.push({
+                texto: `${pr}-${mu}-${ag}-${zo}-${po}-${pa}-${re}`,
+                font: `bold ${Math.round(13 * scaleFactor)}px monospace`,
+                color: "#ffffff"
+            });
+
+            // Línea 3: Coordenadas, altitud y pendiente
+            const pendienteTexto = pendienteRecinto > 0 ? `, pdte(%): ${Math.round(pendienteRecinto)}` : '';
+            lineas.push({
+                texto: `(${currentPos.lat.toFixed(5)}, ${currentPos.lng.toFixed(5)}) Altura ${currentPos.alt}m${pendienteTexto}`,
+                font: `${Math.round(12 * scaleFactor)}px monospace`,
+                color: "#cbd5e1"
+            });
+
+            // Línea 4: Superficie, Uso SIGPAC, Coef. Regadío, Admisibilidad
+            if (datosRecinto) {
+                const sup = datosRecinto.superficie ? parseFloat(datosRecinto.superficie).toFixed(2) : '--';
+                const uso = datosRecinto.uso_sigpac || '--';
+                const coefReg = datosRecinto.coef_regadio ? parseFloat(datosRecinto.coef_regadio).toFixed(2) : '--';
+                const admis = datosRecinto.admisibilidad ? 'Sí' : 'No';
+                lineas.push({
+                    texto: `Sup: ${sup} ha | Uso: ${uso} | Regadío: ${coefReg} | Admis: ${admis}`,
+                    font: `${Math.round(11 * scaleFactor)}px monospace`,
+                    color: "#cbd5e1"
+                });
+            }
+
+            // Línea 5: Orientación, Poda y Estado (omitiendo metros si onlyShowPercent es true)
+            let textoEstado = "ESTADO: Medición en curso";
+            let colorEstado = "#94a3b8";
+            if (lineBlue && lineGreen) {
+                textoEstado = `ESTADO: ${isCompliant ? 'CUMPLE NORMATIVA' : 'NO CUMPLE NORMATIVA'}`;
+                colorEstado = isCompliant ? "#4ade80" : "#f87171";
+            }
+            const textoPoda = onlyShowPercent
+                ? `Poda: ${mulchPercent.toFixed(0)}%`
+                : `Poda: ${mulchMeters.toFixed(2)}m (${mulchPercent.toFixed(0)}%)`;
+
+            lineas.push({
+                texto: `Orientación: ${currentPos.heading}° | ${textoPoda} | ${textoEstado}`,
+                font: `bold ${Math.round(12 * scaleFactor)}px sans-serif`,
+                color: colorEstado
+            });
 
             ctx.save();
+            let maxTextWidth = 0;
+            lineas.forEach(l => {
+                ctx.font = l.font;
+                const w = ctx.measureText(l.texto).width;
+                if (w > maxTextWidth) maxTextWidth = w;
+            });
+
+            const textPadding = 16;
+            const totalWidth = mapBoxSize + textPadding + maxTextWidth + padding * 2;
+            const totalHeight = mapBoxSize + padding * 2;
+
+            const x = cartouchePosition === 'right'
+                ? canvas.width - totalWidth - 25
+                : 25;
+            const y = canvas.height - totalHeight - 25;
 
             ctx.fillStyle = "rgba(15, 23, 42, 0.94)";
             ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
             ctx.lineWidth = 2.5;
-
             ctx.beginPath();
-            ctx.roundRect(x, y, w, h, 14);
+            ctx.roundRect(x, y, totalWidth, totalHeight, 14);
             ctx.fill();
             ctx.stroke();
 
-            const mapBoxSize = h - 30;
-            const mapX = x + 15;
-            const mapY = y + 15;
+            // Mapa (PNOA) dentro de la cartela
+            const mapX = x + padding;
+            const mapY = y + padding;
 
             ctx.save();
             ctx.beginPath();
@@ -917,48 +1051,19 @@
             ctx.lineWidth = 1.5;
             ctx.strokeRect(mapX, mapY, mapBoxSize, mapBoxSize);
 
-            const textX = mapX + mapBoxSize + 16;
-            let textY = y + 26;
-            const lineGap = h / 5.2;
-
-            const pr = document.getElementById('prov').value || '00';
-            const mu = document.getElementById('muni').value || '000';
-            const ag = document.getElementById('agr').value || '0';
-            const zo = document.getElementById('zona').value || '0';
-            const po = document.getElementById('poli').value || '0';
-            const pa = document.getElementById('parc').value || '0';
-            const re = document.getElementById('rec').value || '0';
+            const textX = mapX + mapBoxSize + textPadding;
+            const lineHeight = (mapBoxSize - (lineas.length - 1) * 4) / lineas.length;
+            let textY = mapY + lineHeight / 2;
 
             ctx.textAlign = "left";
             ctx.textBaseline = "middle";
 
-            ctx.font = `bold ${Math.round(14 * scaleFactor)}px sans-serif`;
-            ctx.fillStyle = "#38bdf8";
-            ctx.fillText("VERIFICACIÓN PODA PAC", textX, textY);
-
-            textY += lineGap;
-            ctx.font = `bold ${Math.round(13 * scaleFactor)}px monospace`;
-            ctx.fillStyle = "#ffffff";
-            ctx.fillText(`${pr}-${mu}-${ag}-${zo}-${po}-${pa}-${re}`, textX, textY);
-
-            textY += lineGap;
-            ctx.font = `${Math.round(12 * scaleFactor)}px monospace`;
-            ctx.fillStyle = "#cbd5e1";
-            ctx.fillText(`${currentPos.lat.toFixed(5)}, ${currentPos.lng.toFixed(5)} (${currentPos.alt}m)`, textX, textY);
-
-            textY += lineGap;
-            ctx.fillText(`Orientación: ${currentPos.heading}° | Poda: ${mulchMeters.toFixed(2)}m (${mulchPercent.toFixed(0)}%)`, textX, textY);
-
-            textY += lineGap;
-            if (lineBlue && lineGreen) {
-                ctx.font = `bold ${Math.round(13 * scaleFactor)}px sans-serif`;
-                ctx.fillStyle = isCompliant ? "#4ade80" : "#f87171";
-                ctx.fillText(`ESTADO: ${isCompliant ? 'CUMPLE NORMATIVA' : 'NO CUMPLE NORMATIVA'}`, textX, textY);
-            } else {
-                ctx.font = `${Math.round(11 * scaleFactor)}px sans-serif`;
-                ctx.fillStyle = "#94a3b8";
-                ctx.fillText("ESTADO: Medición en curso", textX, textY);
-            }
+            lineas.forEach((l) => {
+                ctx.font = l.font;
+                ctx.fillStyle = l.color;
+                ctx.fillText(l.texto, textX, textY);
+                textY += lineHeight + 4;
+            });
 
             ctx.restore();
         }
@@ -991,18 +1096,15 @@
             recalculateAndRedraw();
 
             const { jsPDF } = window.jspdf;
-            // Orientación Horizontal (Landscape): 297mm x 210mm
             const pdf = new jsPDF('l', 'mm', 'a4');
 
             const pageWidth = 297;
             const pageHeight = 210;
             const margin = 10;
 
-            // 1. Encabezado en fondo blanco
             pdf.setFillColor(255, 255, 255);
             pdf.rect(0, 0, pageWidth, 20, 'F');
 
-            // Logotipo VAERSA en la cabecera
             if (logoImg.complete && logoImg.naturalWidth > 0) {
                 try {
                     const tempLogoCanvas = document.createElement('canvas');
@@ -1019,7 +1121,7 @@
 
             pdf.setFont("helvetica", "bold");
             pdf.setFontSize(12);
-            pdf.setTextColor(15, 23, 42); // Texto oscuro profesional
+            pdf.setTextColor(15, 23, 42);
             pdf.text("FICHA DE VERIFICACIÓN FOTOGRAMÉTRICA DE PODA", pageWidth - margin, 10, { align: "right" });
 
             pdf.setFont("helvetica", "normal");
@@ -1027,22 +1129,19 @@
             pdf.setTextColor(5, 150, 105);
             pdf.text("Ecorrégimen PAC: Cubiertas Inertes y Vegetales (Agricultura de Carbono)", pageWidth - margin, 15, { align: "right" });
 
-            // Límite divisor del encabezado
             pdf.setDrawColor(226, 232, 240);
             pdf.setLineWidth(0.5);
             pdf.line(margin, 20, pageWidth - margin, 20);
 
-            // 2. Contenedor Visual de la Imagen (Área amplia A4 Horizontal con fondo blanco)
             const boxX = margin;
             const boxY = 22;
-            const boxW = pageWidth - (margin * 2); // 277 mm
-            const boxH = 145; // Alto para albergar la fotografía en horizontal
+            const boxW = pageWidth - (margin * 2);
+            const boxH = 145;
 
             pdf.setFillColor(255, 255, 255);
             pdf.setDrawColor(203, 213, 225);
             pdf.rect(boxX, boxY, boxW, boxH, 'FD');
 
-            // Mantener estricta proporción original de la imagen
             const imgRatio = canvas.width / canvas.height;
             const boxRatio = boxW / boxH;
 
@@ -1058,11 +1157,9 @@
             const renderX = boxX + (boxW - renderW) / 2;
             const renderY = boxY + (boxH - renderH) / 2;
 
-            // Renderizado de la foto procesada dentro del marco
             const imgData = canvas.toDataURL('image/jpeg', 0.95);
             pdf.addImage(imgData, 'JPEG', renderX, renderY, renderW, renderH);
 
-            // 3. Bloque Inferior de Datos Técnicos y Cumplimiento (Fondo Blanco)
             const tableY = boxY + boxH + 4;
             const tableH = 32;
 
@@ -1078,7 +1175,6 @@
             const pa = document.getElementById('parc').value || '--';
             const re = document.getElementById('rec').value || '--';
 
-            // Columna 1: Información SIGPAC y Coordenadas GPS
             pdf.setFont("helvetica", "bold");
             pdf.setFontSize(9.5);
             pdf.setTextColor(2, 132, 199);
@@ -1090,43 +1186,55 @@
 
             pdf.text(`Referencia SIGPAC: Prov: ${pr} | Mun: ${mu} | Agr: ${ag} | Zona: ${zo} | Pol: ${po} | Par: ${pa} | Rec: ${re}`, margin + 5, tableY + 14);
             pdf.text(`Coordenadas GPS: Lat ${currentPos.lat.toFixed(6)}° | Lng ${currentPos.lng.toFixed(6)}° (${currentPos.alt}m) | Azimut: ${currentPos.heading}°`, margin + 5, tableY + 20);
-            pdf.text(`Mediciones: Copa (Azul) = ${crownMeters.toFixed(2)}m | Poda (Verde) = ${mulchMeters.toFixed(2)}m | Cobertura de Copa: ${mulchPercent.toFixed(1)}%`, margin + 5, tableY + 26);
 
-            // Columna 2: Sello Normativo CUMPLE / NO CUMPLE
+            // Si onlyShowPercent es true, se oculta la línea de mediciones en metros (mostrando solo el porcentaje o nada).
+            // Si está false, se muestra la línea completa con metros y porcentaje.
+            if (!onlyShowPercent) {
+                pdf.text(`Mediciones: Copa (Azul) = ${crownMeters.toFixed(2)}m | Poda (Verde) = ${mulchMeters.toFixed(2)}m | Cobertura de Copa: ${mulchPercent.toFixed(1)}%`, margin + 5, tableY + 26);
+            }
+
             const badgeX = margin + 175;
+            const badgeWidth = 60;
+            const badgeHeight = 24;
+
             if (lineBlue && lineGreen) {
                 if (isCompliant) {
                     pdf.setFillColor(236, 253, 245);
                     pdf.setDrawColor(16, 185, 129);
                     pdf.setTextColor(4, 120, 87);
-                    pdf.roundedRect(badgeX, tableY + 6, 52, 20, 2, 2, 'FD');
+                    pdf.roundedRect(badgeX, tableY + 6, badgeWidth, badgeHeight, 2, 2, 'FD');
+                    
                     pdf.setFont("helvetica", "bold");
-                    pdf.setFontSize(9);
-                    pdf.text("ESTADO: CUMPLE", badgeX + 26, tableY + 14, { align: "center" });
-                    pdf.setFontSize(7.5);
-                    pdf.text("NORMATIVA ECORRÉGIMEN", badgeX + 26, tableY + 20, { align: "center" });
+                    pdf.setFontSize(12);
+                    
+                    const text = "El porcentaje de superficie libre con cubierta obtenido, es compatible con el mínimo exigido en la normativa.";
+                    const splitText = pdf.splitTextToSize(text, badgeWidth - 6);
+                    pdf.text(splitText, badgeX + (badgeWidth / 2), tableY + 9, { align: "center" });
+                    
                 } else {
                     pdf.setFillColor(255, 241, 242);
                     pdf.setDrawColor(244, 63, 94);
                     pdf.setTextColor(190, 18, 60);
-                    pdf.roundedRect(badgeX, tableY + 6, 52, 20, 2, 2, 'FD');
+                    pdf.roundedRect(badgeX, tableY + 6, badgeWidth, badgeHeight, 2, 2, 'FD');
+                    
                     pdf.setFont("helvetica", "bold");
-                    pdf.setFontSize(9);
-                    pdf.text("ESTADO: NO CUMPLE", badgeX + 26, tableY + 14, { align: "center" });
-                    pdf.setFontSize(7.5);
-                    pdf.text("NORMATIVA ECORRÉGIMEN", badgeX + 26, tableY + 20, { align: "center" });
+                    pdf.setFontSize(12);
+                    
+                    const text = "El porcentaje de superficie libre con cubierta obtenido, es incompatible con el mínimo exigido en la normativa.";
+                    const splitText = pdf.splitTextToSize(text, badgeWidth - 6);
+                    pdf.text(splitText, badgeX + (badgeWidth / 2), tableY + 9, { align: "center" });
                 }
             } else {
                 pdf.setFillColor(248, 250, 252);
                 pdf.setDrawColor(203, 213, 225);
                 pdf.setTextColor(100, 116, 139);
-                pdf.roundedRect(badgeX, tableY + 6, 52, 20, 2, 2, 'FD');
+                pdf.roundedRect(badgeX, tableY + 6, badgeWidth, 16, 2, 2, 'FD');
+                
                 pdf.setFont("helvetica", "bold");
                 pdf.setFontSize(8);
-                pdf.text("MEDICIÓN PENDIENTE", badgeX + 26, tableY + 17, { align: "center" });
+                pdf.text("MEDICIÓN PENDIENTE", badgeX + (badgeWidth / 2), tableY + 15, { align: "center" });
             }
 
-            // Columna 3: Firma de Inspección
             const sigX = pageWidth - margin - 40;
             pdf.setDrawColor(148, 163, 184);
             pdf.setLineDash([1, 1], 0);
@@ -1136,7 +1244,6 @@
             pdf.setTextColor(100, 116, 139);
             pdf.text("Firma / Validado por VAERSA", sigX + 17, tableY + 25, { align: "center" });
 
-            // Pie de página
             pdf.setFontSize(6.5);
             pdf.setTextColor(148, 163, 184);
             pdf.text(`Ficha de Inspección Oficial A4 Horizontal - Generada el ${new Date().toLocaleDateString()} a las ${new Date().toLocaleTimeString()}`, margin, pageHeight - 3);
